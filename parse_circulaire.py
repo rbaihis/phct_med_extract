@@ -261,21 +261,19 @@ def parse_medication_line(line: str, current_lab: str = None) -> Optional[dict]:
     
     # Pattern 2: Code at end (OCR'd PDFs - RTL text gets code at end)
     # NAME ... PRICE1 PRICE2 PRICE3 [CATEGORY] [MARGIN] CODE
+    # Handles OCR artifacts: ']' after price, '_' after category, '{' before margin, '10,240' instead of '0,240'
     pattern_code_end = re.compile(
         r'^(.+?)\s+'  # name at start
         r'(\d{1,3}[,\.]\d{3})\s+'  # price 1
         r'(\d{1,3}[,\.]\d{3})\s+'  # price 2
-        r'(\d{1,3}[,\.]\d{3})\s*'  # price 3
-        r'([A-C\-_])?\s*'  # category (optional, might be _ from OCR)
-        r'[\{\[]?(\d[,\.]\d{3})[\}\]]?\s*'  # margin (with possible OCR artifacts)
+        r'(\d{1,3}[,\.]\d{3})[\]\s]*'  # price 3 (with possible ] from OCR)
+        r'([A-C])[_\s]*'  # category (with possible _ from OCR)
+        r'[\{\[]?[01]?(\d[,\.]\d{3})[\}\]]?\s*'  # margin (OCR may add leading 1 or 0, or brackets)
         r'(\d{6})\s*$'  # code at end
     )
     match = pattern_code_end.search(line)
     if match:
         name, price1, price2, price3, cat, margin, code = match.groups()
-        # Clean up category (OCR might produce _ instead of A)
-        if cat == '_':
-            cat = 'A'
         return {
             "code": code,
             "name": clean_medication_name(name),
@@ -285,6 +283,53 @@ def parse_medication_line(line: str, current_lab: str = None) -> Optional[dict]:
             "price_public": float(price3.replace(',', '.')),
             "category": cat if cat and cat != '-' else None,
             "margin": float(margin.replace(',', '.')) if margin else None,
+        }
+    
+    # Pattern 2b: Code at end with 3 prices, category is "-" (no margin)
+    # NAME ... PRICE1 PRICE2 PRICE3 - CODE
+    pattern_code_end_dash = re.compile(
+        r'^(.+?)\s+'  # name at start
+        r'(\d{1,3}[,\.]\d{3})\s+'  # price 1
+        r'(\d{1,3}[,\.]\d{3})\s+'  # price 2
+        r'(\d{1,3}[,\.]\d{3})[\]\s]*'  # price 3 (with possible ] from OCR)
+        r'-\s*'  # category is -
+        r'(\d{6})\s*$'  # code at end
+    )
+    match = pattern_code_end_dash.search(line)
+    if match:
+        name, price1, price2, price3, code = match.groups()
+        return {
+            "code": code,
+            "name": clean_medication_name(name),
+            "laboratory": current_lab,
+            "price_wholesale": float(price1.replace(',', '.')),
+            "price_pharmacy": float(price2.replace(',', '.')),
+            "price_public": float(price3.replace(',', '.')),
+            "category": None,  # - means no category
+            "margin": None,
+        }
+    
+    # Pattern 2c: Code at end with 3 prices but no category/margin
+    # NAME ... PRICE1 PRICE2 PRICE3 CODE
+    pattern_code_end_simple = re.compile(
+        r'^(.+?)\s+'  # name at start
+        r'(\d{1,3}[,\.]\d{3})\s+'  # price 1
+        r'(\d{1,3}[,\.]\d{3})\s+'  # price 2
+        r'(\d{1,3}[,\.]\d{3})[\]\s]+'  # price 3 (with possible ] from OCR)
+        r'(\d{6})\s*$'  # code at end (directly after price3)
+    )
+    match = pattern_code_end_simple.search(line)
+    if match:
+        name, price1, price2, price3, code = match.groups()
+        return {
+            "code": code,
+            "name": clean_medication_name(name),
+            "laboratory": current_lab,
+            "price_wholesale": float(price1.replace(',', '.')),
+            "price_pharmacy": float(price2.replace(',', '.')),
+            "price_public": float(price3.replace(',', '.')),
+            "category": None,
+            "margin": None,
         }
     
     # Pattern 3: Alternative - simpler pattern for code at start
@@ -457,6 +502,7 @@ def parse_medications_from_section(text: str, section_info: dict) -> list:
     """Parse all medications from a section of text"""
     medications = []
     current_lab = None
+    pending_lab_lines = []  # For multi-line lab names
     
     lines = text.split('\n')
     
@@ -465,11 +511,30 @@ def parse_medications_from_section(text: str, section_info: dict) -> list:
         if not line:
             continue
         
+        # Clean RTL markers early
+        clean_line = line.replace('\u200e', '').replace('\u200f', '').strip()
+        
         # Check if this is a laboratory line
-        if is_laboratory_line(line):
-            # Clean RTL markers from lab name
-            current_lab = line.replace('\u200e', '').replace('\u200f', '').strip()
+        if is_laboratory_line(clean_line):
+            # Check if this continues a previous lab name
+            # (lab names that span multiple lines typically end with AND, &, or are all caps continuation)
+            if pending_lab_lines and (
+                pending_lab_lines[-1].rstrip().endswith('AND') or
+                pending_lab_lines[-1].rstrip().endswith('&') or
+                (clean_line.isupper() and len(clean_line.split()) <= 3)
+            ):
+                pending_lab_lines.append(clean_line)
+            else:
+                # Start new lab name - save previous if exists
+                if pending_lab_lines:
+                    current_lab = ' '.join(pending_lab_lines)
+                pending_lab_lines = [clean_line]
             continue
+        
+        # If we have pending lab lines and this isn't a lab line, finalize the lab name
+        if pending_lab_lines:
+            current_lab = ' '.join(pending_lab_lines)
+            pending_lab_lines = []
         
         # Try to parse as medication
         med = parse_medication_line(line, current_lab)
@@ -477,7 +542,33 @@ def parse_medications_from_section(text: str, section_info: dict) -> list:
             med["type"] = section_info.get("type", "new")
             med["specialty"] = section_info.get("specialty", "human")
             med["origin"] = section_info.get("origin", "local")
+            
+            # Try to calculate missing price_public from price_pharmacy
+            # Using price-tier based markup ratios derived from actual data:
+            # - ph >= 25: ratio 1.316 (31.6% markup)
+            # - ph 8-25:  ratio 1.351 (35.1% markup)
+            # - ph 3-8:   ratio 1.389 (38.9% markup)
+            # - ph < 3:   ratio 1.429 (42.9% markup)
+            if med.get("price_public") is None and med.get("price_pharmacy"):
+                ph = med["price_pharmacy"]
+                if ph >= 25:
+                    ratio = 1.316
+                elif ph >= 8:
+                    ratio = 1.351
+                elif ph >= 3:
+                    ratio = 1.389
+                else:
+                    ratio = 1.429
+                calculated = ph * ratio
+                # Round to 3 decimal places
+                med["price_public"] = round(calculated, 3)
+                med["price_public_calculated"] = True
+            
             medications.append(med)
+    
+    # Don't forget last pending lab
+    if pending_lab_lines:
+        current_lab = ' '.join(pending_lab_lines)
     
     return medications
 
