@@ -233,9 +233,16 @@ class PhctCirculaire(models.Model):
 
     def _ocr_page(self, pdf_path, page_number):
         if not HAS_OCR:
+            logger.debug('OCR requested but HAS_OCR=False')
             return ""
-        temp_prefix = f"temp_page_{page_number}_{os.getpid()}"
+        
+        # Use /tmp for temp files to avoid permission issues
+        temp_dir = tempfile.gettempdir()
+        temp_prefix = os.path.join(temp_dir, f"odoo_ocr_page_{page_number}_{os.getpid()}")
         temp_png = f"{temp_prefix}.png"
+        
+        logger.info('Running OCR on page %d of %s', page_number, os.path.basename(pdf_path))
+        
         try:
             result = subprocess.run(
                 ["pdftoppm", pdf_path, temp_prefix, "-png", "-r", "300",
@@ -243,24 +250,38 @@ class PhctCirculaire(models.Model):
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60
             )
             if result.returncode != 0:
+                logger.warning('pdftoppm failed with code %d: %s', result.returncode, result.stderr.decode())
                 return ""
-        except Exception:
+        except Exception as e:
+            logger.exception('pdftoppm exception: %s', e)
             return ""
+        
         if not os.path.exists(temp_png):
+            logger.warning('OCR temp file not created: %s', temp_png)
             return ""
+        
         clean_png = self._preprocess_for_ocr(temp_png)
         text = ""
         try:
             img = Image.open(clean_png)
             text = pytesseract.image_to_string(img, lang="ara+fra+eng", config="--psm 6")
-        except Exception:
-            pass
+            logger.info('OCR extracted %d characters from page %d', len(text), page_number)
+        except Exception as e:
+            logger.exception('OCR extraction failed: %s', e)
+        
+        # Clean up temp files
         for f in [temp_png, clean_png]:
             try:
-                if os.path.exists(f):
+                if os.path.exists(f) and f != temp_png:  # Don't delete if same file
                     os.remove(f)
             except Exception:
                 pass
+        try:
+            if os.path.exists(temp_png):
+                os.remove(temp_png)
+        except Exception:
+            pass
+        
         return normalize_arabic(text)
 
     def _page_has_chars(self, page):
@@ -281,9 +302,11 @@ class PhctCirculaire(models.Model):
         return count
 
     def _extract_text_from_pdf(self, pdf_path):
+        """Extract text from PDF. Returns (text, ocr_used_flag)."""
         if not HAS_PDFPLUMBER:
             raise Exception('pdfplumber required')
         full_text = ""
+        ocr_pages = []
         try:
             import pdfplumber
             with pdfplumber.open(pdf_path) as pdf:
@@ -291,14 +314,26 @@ class PhctCirculaire(models.Model):
                     raw = page.extract_text() or ""
                     has_chars = self._page_has_chars(page)
                     arabic_count = self._count_arabic_letters(raw)
-                    if (not has_chars) or len(raw.strip()) < 5 or arabic_count < 3:
+                    
+                    # Decide if OCR is needed
+                    needs_ocr = (not has_chars) or len(raw.strip()) < 5 or arabic_count < 3
+                    
+                    if needs_ocr:
+                        logger.info('Page %d needs OCR (has_chars=%s, text_len=%d, arabic=%d)', 
+                                   pg_num, has_chars, len(raw.strip()), arabic_count)
                         page_text = self._ocr_page(pdf_path, pg_num)
+                        ocr_pages.append(pg_num)
                     else:
                         page_text = normalize_arabic(raw)
+                    
                     full_text += page_text + "\n"
+                
+                if ocr_pages:
+                    logger.info('Used OCR on %d pages: %s', len(ocr_pages), ocr_pages)
         except Exception as e:
             logger.exception('Error extracting PDF: %s', e)
-        return full_text
+        
+        return full_text, bool(ocr_pages)
 
     # =============================================================================
     # PARSER
@@ -679,12 +714,13 @@ class PhctCirculaire(models.Model):
 
                     parsed = None
                     simplified = None
+                    ocr_used = False
 
                     tmp_path = os.path.join('/tmp', filename)
                     with open(tmp_path, 'wb') as fh:
                         fh.write(resp.content)
                     try:
-                        text = self._extract_text_from_pdf(tmp_path)
+                        text, ocr_used = self._extract_text_from_pdf(tmp_path)
                         if text and len(text.strip()) > 50:
                             parsed = self._parse_circulaire_text(text, filename)
                             simplified = self._create_simplified(parsed)
@@ -693,6 +729,7 @@ class PhctCirculaire(models.Model):
 
                     if parsed is not None:
                         vals['parsed'] = json.dumps(parsed, ensure_ascii=False)
+                        vals['ocr_used'] = ocr_used
                         if parsed.get('date'):
                             vals['date'] = parsed.get('date')
                         if parsed.get('circulaire_number'):

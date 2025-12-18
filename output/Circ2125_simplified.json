@@ -1,0 +1,34 @@
+[
+  {
+    "date": "2025-05-09",
+    "circulaire": "2025/21",
+    "laboratory": "BOEHRINGER INGELHEIM MIDDLE EAST AND AFRICA GMBH",
+    "type": "revised",
+    "medications": [
+      {
+        "code": null,
+        "name": "JARDIANCE 25mg Comp.Pell. Bt 30",
+        "sale_price": 120.25,
+        "pharmacy_price": 91.375,
+        "wholesale_price": 84.062,
+        "category": "A"
+      }
+    ]
+  },
+  {
+    "date": "2025-05-09",
+    "circulaire": "2025/21",
+    "laboratory": "VIRBAC",
+    "type": "new",
+    "medications": [
+      {
+        "code": "201268",
+        "name": "ZOLETIL 100 (SOmg/mH-SOmg/ml) Lyoph. Et Solv.P.Sol.Inj.P.Chiens Et Chats Bt",
+        "sale_price": 105.05,
+        "pharmacy_price": 79.825,
+        "wholesale_price": 73.436,
+        "category": null
+      }
+    ]
+  }
+]
