@@ -166,8 +166,8 @@ CATEGORY_PATTERNS = {
         r"اختصاصات\s*بيطرية\s*مستوردة(?!\s*\(مراجعة)",
         r"إختصاصات\s*بيطرية\s*محلية(?!\s*\(مراجعة)",
         r"اختصاصات\s*بيطرية\s*محلية(?!\s*\(مراجعة)",
-        r"ةدروتسم\s*ةيرطيب\s*تاصاصتخا",
-        r"ةيلحم\s*ةيرطيب\s*تاصاصتخا",
+        r"ةدروتسم\s*ةيرطيب\s*تاصاصتخ[اإ]",
+        r"ةيلحم\s*ةيرطيب\s*تاصاصتخ[اإ]",
         r"[-]?اختصاصات\s*بيطري[هة]",
     ],
     "revised_local_human": [
@@ -191,7 +191,9 @@ CATEGORY_PATTERNS = {
     "revised_veterinary": [
         r"إختصاصات\s*بيطرية.*\(مراجعة\s*أسعار\)",
         r"اختصاصات\s*بيطرية.*\(مراجعة\s*أسعار\)",
-        r"\(راعسأ\s*ةعجارم\).*ةيرطيب\s*تاصاصتخا",
+        r"\(راعسأ\s*ةعجارم\).*ةيرطيب\s*تاصاصتخ[اإ]",
+        r"راعسأ\s*ةعجارم.*ةيلحم\s*ةيرطيب\s*تاصاصتخ[اإ]",
+        r"راعسأ\s*ةعجارم.*ةدروتسم\s*ةيرطيب\s*تاصاصتخ[اإ]",
     ],
 }
 
@@ -705,6 +707,10 @@ class CirculaireParser:
         section_breaks = CirculaireParser._find_section_breaks(text)
         
         for i, section in enumerate(sections):
+            # ONLY process human medication sections - skip veterinary
+            if section.get("specialty") == "veterinary":
+                continue
+            
             section_end = len(text)
             if i + 1 < len(sections):
                 section_end = min(section_end, sections[i + 1]["start"])

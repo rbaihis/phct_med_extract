@@ -1,0 +1,3 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_phct_circulaire,access_phct_circulaire,model_phct_circulaire,,1,1,1,1
+access_phct_circulaire_med,access_phct_circulaire_med,model_phct_circulaire_med,,1,1,1,1

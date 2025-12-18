@@ -1,0 +1,21 @@
+<odoo>
+  <data noupdate="1">
+    <!-- Default config for base URL -->
+    <record id="config_base_url" model="ir.config_parameter">
+      <field name="key">phct_circulaire.base_url</field>
+      <field name="value">http://www.phct.com.tn/images/DocumentsPCT/Circulaires/</field>
+    </record>
+
+    <!-- Cron job to fetch circulaires hourly -->
+    <record id="ir_cron_phct_circulaire" model="ir.cron">
+      <field name="name">Fetch PHCT Circulaires</field>
+      <field name="model_id" ref="model_phct_circulaire"/>
+      <field name="state">code</field>
+      <field name="code">model.fetch_and_process_circulaires()</field>
+      <field name="interval_number">1</field>
+      <field name="interval_type">hours</field>
+      <field name="numbercall">-1</field>
+      <field name="active" eval="True"/>
+    </record>
+  </data>
+</odoo>

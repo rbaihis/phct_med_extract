@@ -1,0 +1,79 @@
+<odoo>
+  <data>
+    <record id="view_phct_circulaire_tree" model="ir.ui.view">
+      <field name="name">phct.circulaire.tree</field>
+      <field name="model">phct.circulaire</field>
+      <field name="arch" type="xml">
+        <tree string="Circulaires">
+          <field name="filename"/>
+          <field name="circulaire_ref"/>
+          <field name="circulaire_number"/>
+          <field name="year"/>
+          <field name="date"/>
+          <field name="medications_count"/>
+          <field name="ocr_used"/>
+        </tree>
+      </field>
+    </record>
+
+    <record id="view_phct_circulaire_form" model="ir.ui.view">
+      <field name="name">phct.circulaire.form</field>
+      <field name="model">phct.circulaire</field>
+      <field name="arch" type="xml">
+        <form string="Circulaire">
+          <sheet>
+            <group>
+              <group>
+                <field name="filename"/>
+                <field name="circulaire_ref"/>
+                <field name="circulaire_number"/>
+                <field name="year"/>
+                <field name="pdf_url" widget="url"/>
+              </group>
+              <group>
+                <field name="date"/>
+                <field name="medications_count"/>
+                <field name="ocr_used"/>
+              </group>
+            </group>
+            <notebook>
+              <page string="Medications">
+                <field name="medication_ids">
+                  <tree editable="bottom">
+                    <field name="code"/>
+                    <field name="name"/>
+                    <field name="laboratory"/>
+                    <field name="price_pharmacy"/>
+                    <field name="price_public"/>
+                    <field name="category"/>
+                    <field name="type"/>
+                    <field name="origin"/>
+                  </tree>
+                </field>
+              </page>
+              <page string="Parsed JSON">
+                <field name="parsed" widget="ace" options="{'mode': 'json'}"/>
+              </page>
+              <page string="Simplified JSON">
+                <field name="simplified" widget="ace" options="{'mode': 'json'}"/>
+              </page>
+              <page string="Sections">
+                <field name="sections_found" widget="ace" options="{'mode': 'json'}"/>
+              </page>
+            </notebook>
+          </sheet>
+        </form>
+      </field>
+    </record>
+
+    <record id="action_phct_circulaires" model="ir.actions.act_window">
+      <field name="name">PHCT Circulaires</field>
+      <field name="res_model">phct.circulaire</field>
+      <field name="view_mode">tree,form</field>
+    </record>
+
+    <menuitem id="menu_phct_root" name="PHCT" sequence="90"/>
+    <menuitem id="menu_phct_circulaire" name="Circulaires" parent="menu_phct_root" sequence="10"/>
+    <menuitem id="menu_phct_circulaires_action" name="Imported Circulaires" parent="menu_phct_circulaire" action="action_phct_circulaires" sequence="10"/>
+  </data>
+</odoo>
