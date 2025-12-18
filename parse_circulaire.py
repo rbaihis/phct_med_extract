@@ -58,9 +58,9 @@ CATEGORY_PATTERNS = {
         r"اختصاصات\s*بشرية\s*محلية\s*\(مراجعة\s*أسعار\)",
         r"1[-.]?\s*إختصاصات\s*بشرية\s*محلية\s*\(مراجعة",
         r"1[-.]?\s*اختصاصات\s*بشرية\s*محلية\s*\(مراجعة",
-        # Reversed forms with price revision
-        r"\(راعسأ\s*ةعجارم\)\s*ةيلحم\s*ةيرشب\s*تاصاصتخا",
-        r"راعسأ\s*ةعجارم.*ةيلحم\s*ةيرشب\s*تاصاصتخا",
+        # Reversed forms with price revision - match backwards parentheses and both Unicode endings
+        r"\)راعسأ\s*ةعجارم\(\s*ةيلحم\s*ةيرشب\s*تاصاصتخ[اإ]",
+        r"راعسأ\s*ةعجارم.*ةيلحم\s*ةيرشب\s*تاصاصتخ[اإ]",
         # OCR variations
         r"[-]?اختصاصات\s*بشري[هة]\s*محلي[هة]\s*\(مراجعة",
     ],
@@ -70,9 +70,9 @@ CATEGORY_PATTERNS = {
         r"اختصاصات\s*بشرية\s*مستوردة\s*\(مراجعة\s*أسعار\)",
         r"2[-.]?\s*إختصاصات\s*بشرية\s*مستوردة\s*\(مراجعة",
         r"2[-.]?\s*اختصاصات\s*بشرية\s*مستوردة\s*\(مراجعة",
-        # Reversed forms
-        r"\(راعسأ\s*ةعجارم\)\s*ةدروتسم\s*ةيرشب\s*تاصاصتخا",
-        r"راعسأ\s*ةعجارم.*ةدروتسم\s*ةيرشب\s*تاصاصتخا",
+        # Reversed forms - match backwards parentheses and both Unicode endings
+        r"\)راعسأ\s*ةعجارم\(\s*ةدروتسم\s*ةيرشب\s*تاصاصتخ[اإ]",
+        r"راعسأ\s*ةعجارم.*ةدروتسم\s*ةيرشب\s*تاصاصتخ[اإ]",
         # OCR variations  
         r"[-]?اختصاصات\s*بشري[هة]\s*مستورد[هة]\s*\(مراجعة",
     ],
@@ -80,8 +80,8 @@ CATEGORY_PATTERNS = {
     "revised_veterinary": [
         r"إختصاصات\s*بيطرية.*\(مراجعة\s*أسعار\)",
         r"اختصاصات\s*بيطرية.*\(مراجعة\s*أسعار\)",
-        # Reversed forms - match both ا and إ endings
-        r"\(راعسأ\s*ةعجارم\).*ةيرطيب\s*تاصاصتخ[اإ]",
+        # Reversed forms - match backwards parentheses and both Unicode endings
+        r"\)راعسأ\s*ةعجارم\(.*ةيرطيب\s*تاصاصتخ[اإ]",
         r"راعسأ\s*ةعجارم.*ةيلحم\s*ةيرطيب\s*تاصاصتخ[اإ]",
         r"راعسأ\s*ةعجارم.*ةدروتسم\s*ةيرطيب\s*تاصاصتخ[اإ]",
     ],
