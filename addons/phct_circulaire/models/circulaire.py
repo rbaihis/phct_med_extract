@@ -817,3 +817,315 @@ class PhctCirculaireMed(models.Model):
     specialty = fields.Char(string='Specialty')
     origin = fields.Char(string='Origin')
     data = fields.Text(string='Raw Medication JSON')
+    
+    # Product matching fields
+    product_id = fields.Many2one('product.template', string='Matched Product', 
+                                 help='Product found in database matching this medication')
+    match_status = fields.Selection([
+        ('not_checked', 'Not Checked'),
+        ('matched', 'Matched'),
+        ('not_found', 'Not Found'),
+    ], string='Match Status', default='not_checked', help='Status of product matching')
+    price_difference = fields.Float(string='Price Difference', 
+                                    help='Difference between PHCT price and product list_price (PHCT - Product)')
+    price_comparison = fields.Selection([
+        ('equal', 'Equal'),
+        ('phct_higher', 'PHCT Higher'),
+        ('phct_lower', 'PHCT Lower'),
+        ('no_product', 'No Product Match'),
+    ], string='Price Comparison', default='no_product',
+       help='Comparison of PHCT sale price vs product list_price')
+    match_confidence = fields.Float(string='Match Confidence %', 
+                                    help='Confidence score of the product match (0-100)')
+    
+    def _calculate_price_comparison(self):
+        """Calculate price comparison with matched product."""
+        if not self.product_id or not self.price_public:
+            self.price_difference = 0.0
+            self.price_comparison = 'no_product'
+            return
+        
+        product_price = self.product_id.list_price or 0.0
+        phct_price = self.price_public or 0.0
+        
+        self.price_difference = phct_price - product_price
+        
+        # Consider prices equal if difference is less than 0.01
+        if abs(self.price_difference) < 0.01:
+            self.price_comparison = 'equal'
+        elif self.price_difference > 0:
+            self.price_comparison = 'phct_higher'
+        else:
+            self.price_comparison = 'phct_lower'
+    
+    def _normalize_text(self, text):
+        """Normalize text for comparison: lowercase, remove extra spaces, punctuation."""
+        if not text:
+            return ''
+        import re
+        # Remove common punctuation and extra spaces
+        text = re.sub(r'[®™©\-_/,\.\(\)\[\]]', ' ', text.lower())
+        text = re.sub(r'\s+', ' ', text).strip()
+        return text
+    
+    def _extract_medication_components(self, name):
+        """Extract structured components from medication name.
+        
+        Pattern: BRAND_NAME STRENGTH DOSAGE_FORM PACKAGING
+        Example: ELIXTRA 2.5mg Comp.Pell. Bt 20
+        
+        Returns: dict with brand, strengths, forms, packaging
+        """
+        import re
+        
+        if not name:
+            return {}
+        
+        parts = name.split()
+        brand = parts[0].lower() if parts else ''
+        
+        # Extract strengths (numbers with units: mg, g, μg, %, ml, dose)
+        strength_pattern = r'\d+(?:\.\d+)?(?:mg|g|μg|%|ml|dose)'
+        strengths = re.findall(strength_pattern, name, re.IGNORECASE)
+        strengths = [s.lower() for s in strengths]
+        
+        # Extract packaging (Bt, Fl, Tb, Amp, Ser with numbers)
+        packaging_pattern = r'(Bt|Fl|Tb|Amp|Ser)\s*\d+'
+        packaging = re.findall(packaging_pattern, name, re.IGNORECASE)
+        packaging = [p.lower().replace(' ', '') for p in packaging]
+        
+        return {
+            'brand': brand,
+            'strengths': strengths,
+            'packaging': packaging,
+            'normalized': self._normalize_text(name)
+        }
+    
+    def _calculate_name_similarity(self, name1, name2):
+        """Calculate similarity score between two names (0-100).
+        
+        STRICT RULE: First word (brand name) must match exactly (case-insensitive).
+        ENHANCED: Also considers strength and packaging for better accuracy.
+        """
+        if not name1 or not name2:
+            return 0.0
+        
+        # Extract components from both names
+        comp1 = self._extract_medication_components(name1)
+        comp2 = self._extract_medication_components(name2)
+        
+        if not comp1 or not comp2:
+            return 0.0
+        
+        # RULE 1: Brand name (first word) must match exactly
+        if comp1['brand'] != comp2['brand']:
+            return 0.0
+        
+        # Brand matches! Now calculate detailed similarity
+        score = 0.0
+        
+        # RULE 2: Strength matching (very important - 40 points)
+        if comp1['strengths'] and comp2['strengths']:
+            # Check if primary strength matches (first strength)
+            if comp1['strengths'][0] == comp2['strengths'][0]:
+                score += 40
+            # Check if any strengths match
+            elif set(comp1['strengths']) & set(comp2['strengths']):
+                score += 20
+        elif not comp1['strengths'] and not comp2['strengths']:
+            # Both have no strength info (rare but possible)
+            score += 20
+        
+        # RULE 3: Token-based similarity for rest of name (40 points)
+        norm1 = comp1['normalized']
+        norm2 = comp2['normalized']
+        
+        tokens1 = set(norm1.split())
+        tokens2 = set(norm2.split())
+        
+        if tokens1 and tokens2:
+            intersection = len(tokens1 & tokens2)
+            union = len(tokens1 | tokens2)
+            
+            if union > 0:
+                jaccard = (intersection / union)
+                score += jaccard * 40
+        
+        # RULE 4: Packaging bonus (20 points)
+        if comp1['packaging'] and comp2['packaging']:
+            # Same packaging type and quantity
+            if comp1['packaging'] == comp2['packaging']:
+                score += 20
+            # Same packaging type, different quantity (still good)
+            elif any(p1[:2] == p2[:2] for p1 in comp1['packaging'] for p2 in comp2['packaging']):
+                score += 10
+        elif not comp1['packaging'] and not comp2['packaging']:
+            # Both missing packaging info
+            score += 10
+        
+        # RULE 5: Substring bonus
+        if norm1 in norm2 or norm2 in norm1:
+            score = min(100.0, score + 10)
+        
+        return min(100.0, score)
+    
+    def _find_matching_product(self):
+        """Find matching product in database using smart matching.
+        
+        Returns: (product_record, confidence_score)
+        """
+        Product = self.env['product.template']
+        
+        # Category ID 9 is for pharmacy products based on user's SQL query
+        pharmacy_categ_id = 9
+        base_domain = [('categ_id', '=', pharmacy_categ_id), ('active', '=', True)]
+        
+        best_match = None
+        best_score = 0.0
+        
+        # Strategy 1: Exact code_pct match (highest priority)
+        if self.code:
+            products = Product.search(base_domain + [('code_pct', '=', self.code)])
+            if products:
+                logger.info('Found exact code_pct match for %s: %s', self.code, products[0].name)
+                return products[0], 100.0
+        
+        # Strategy 2: Name matching with laboratory filter
+        if self.name:
+            # First try with laboratory filter if available
+            if self.laboratory:
+                lab_domain = base_domain + [('labo', 'ilike', self.laboratory)]
+                lab_products = Product.search(lab_domain)
+                
+                for product in lab_products:
+                    score = self._calculate_name_similarity(self.name, product.name)
+                    if score > best_score:
+                        best_score = score
+                        best_match = product
+            
+            # If no good match with laboratory, try all products
+            if best_score < 70:
+                all_products = Product.search(base_domain)
+                
+                for product in all_products:
+                    score = self._calculate_name_similarity(self.name, product.name)
+                    
+                    # Boost score if laboratory also matches
+                    if self.laboratory and product.labo:
+                        lab_similarity = self._calculate_name_similarity(self.laboratory, product.labo)
+                        if lab_similarity > 70:
+                            score = min(100.0, score + 10)
+                    
+                    if score > best_score:
+                        best_score = score
+                        best_match = product
+        
+        if best_match and best_score >= 60:  # Minimum confidence threshold
+            logger.info('Found fuzzy match for "%s": %s (score: %.1f%%)', 
+                       self.name, best_match.name, best_score)
+            return best_match, best_score
+        
+        logger.info('No suitable match found for "%s" (best score: %.1f%%)', self.name, best_score)
+        return None, 0.0
+    
+    def match_with_product(self):
+        """Try to match this medication with a product in the database."""
+        for rec in self:
+            product, confidence = rec._find_matching_product()
+            
+            if product:
+                rec.write({
+                    'product_id': product.id,
+                    'match_status': 'matched',
+                    'match_confidence': confidence,
+                })
+                # Calculate price comparison after matching
+                rec._calculate_price_comparison()
+            else:
+                rec.write({
+                    'product_id': False,
+                    'match_status': 'not_found',
+                    'match_confidence': 0.0,
+                    'price_comparison': 'no_product',
+                    'price_difference': 0.0,
+                })
+        
+        return True
+    
+    def action_bulk_rematch(self):
+        """Bulk action to re-match selected medications.
+        
+        Use this after adding new products to the database to find matches
+        for previously unmatched medications without re-running the cronjob.
+        """
+        matched_count = 0
+        still_not_found = 0
+        
+        for rec in self:
+            old_status = rec.match_status
+            rec.match_with_product()
+            
+            if rec.match_status == 'matched' and old_status != 'matched':
+                matched_count += 1
+            elif rec.match_status == 'not_found':
+                still_not_found += 1
+        
+        # Show result message
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': _('Re-matching Complete'),
+                'message': _('New matches: %d, Still not found: %d') % (matched_count, still_not_found),
+                'type': 'success' if matched_count > 0 else 'info',
+                'sticky': False,
+            }
+        }
+    
+    @api.model
+    def action_rematch_all_unmatched(self):
+        """Re-match all medications that are currently not matched.
+        
+        Call this after bulk product imports to automatically find new matches.
+        """
+        unmatched = self.search([('match_status', '=', 'not_found')])
+        
+        if not unmatched:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': _('No Unmatched Medications'),
+                    'message': _('All medications are already matched or checked.'),
+                    'type': 'info',
+                    'sticky': False,
+                }
+            }
+        
+        matched_count = 0
+        for med in unmatched:
+            med.match_with_product()
+            if med.match_status == 'matched':
+                matched_count += 1
+        
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': _('Re-matching Complete'),
+                'message': _('Found %d new matches out of %d unmatched medications') % (matched_count, len(unmatched)),
+                'type': 'success' if matched_count > 0 else 'warning',
+                'sticky': True,
+            }
+        }
+    
+    @api.model
+    def create(self, vals):
+        """Override create to automatically match products."""
+        record = super(PhctCirculaireMed, self).create(vals)
+        # Auto-match with product after creation
+        try:
+            record.match_with_product()
+        except Exception as e:
+            logger.warning('Failed to auto-match product for %s: %s', record.name, e)
+        return record

@@ -39,15 +39,22 @@
             <notebook>
               <page string="Medications">
                 <field name="medication_ids">
-                  <tree editable="bottom">
+                  <tree editable="bottom" decoration-success="match_status=='matched' and price_comparison=='equal'" 
+                        decoration-warning="match_status=='matched' and price_comparison in ('phct_higher', 'phct_lower')"
+                        decoration-muted="match_status=='not_found'">
                     <field name="code"/>
                     <field name="name"/>
                     <field name="laboratory"/>
-                    <field name="price_pharmacy"/>
                     <field name="price_public"/>
-                    <field name="category"/>
+                    <field name="match_status" optional="show"/>
+                    <field name="product_id" optional="show"/>
+                    <field name="match_confidence" optional="hide" widget="progressbar"/>
+                    <field name="price_comparison" optional="show"/>
+                    <field name="price_difference" optional="show" widget="monetary"/>
+                    <field name="category" optional="hide"/>
                     <field name="type"/>
                     <field name="origin"/>
+                    <field name="price_pharmacy" optional="hide"/>
                   </tree>
                 </field>
               </page>
@@ -75,5 +82,127 @@
     <menuitem id="menu_phct_root" name="PHCT" sequence="90"/>
     <menuitem id="menu_phct_circulaire" name="Circulaires" parent="menu_phct_root" sequence="10"/>
     <menuitem id="menu_phct_circulaires_action" name="Imported Circulaires" parent="menu_phct_circulaire" action="action_phct_circulaires" sequence="10"/>
+    
+    <!-- Medications views -->
+    <record id="view_phct_circulaire_med_tree" model="ir.ui.view">
+      <field name="name">phct.circulaire.med.tree</field>
+      <field name="model">phct.circulaire.med</field>
+      <field name="arch" type="xml">
+        <tree string="Medications" decoration-success="match_status=='matched' and price_comparison=='equal'" 
+              decoration-warning="match_status=='matched' and price_comparison in ('phct_higher', 'phct_lower')"
+              decoration-muted="match_status=='not_found'">
+          <field name="circulaire_id"/>
+          <field name="code"/>
+          <field name="name"/>
+          <field name="laboratory"/>
+          <field name="price_public"/>
+          <field name="match_status"/>
+          <field name="product_id"/>
+          <field name="match_confidence" widget="progressbar" optional="hide"/>
+          <field name="price_comparison"/>
+          <field name="price_difference" widget="monetary"/>
+          <field name="type"/>
+          <field name="origin"/>
+        </tree>
+      </field>
+    </record>
+
+    <record id="view_phct_circulaire_med_form" model="ir.ui.view">
+      <field name="name">phct.circulaire.med.form</field>
+      <field name="model">phct.circulaire.med</field>
+      <field name="arch" type="xml">
+        <form string="Medication">
+          <sheet>
+            <group>
+              <group>
+                <field name="circulaire_id"/>
+                <field name="code"/>
+                <field name="name"/>
+                <field name="laboratory"/>
+                <field name="type"/>
+                <field name="origin"/>
+                <field name="specialty"/>
+              </group>
+              <group>
+                <field name="price_wholesale"/>
+                <field name="price_pharmacy"/>
+                <field name="price_public"/>
+                <field name="category"/>
+                <field name="margin"/>
+              </group>
+            </group>
+            <group string="Product Matching">
+              <group>
+                <field name="match_status"/>
+                <field name="product_id"/>
+                <field name="match_confidence" widget="progressbar"/>
+              </group>
+              <group>
+                <field name="price_comparison"/>
+                <field name="price_difference" widget="monetary"/>
+              </group>
+            </group>
+            <group string="Actions">
+              <button name="match_with_product" string="Re-match Product" type="object" class="oe_highlight"/>
+            </group>
+          </sheet>
+        </form>
+      </field>
+    </record>
+
+    <record id="view_phct_circulaire_med_search" model="ir.ui.view">
+      <field name="name">phct.circulaire.med.search</field>
+      <field name="model">phct.circulaire.med</field>
+      <field name="arch" type="xml">
+        <search string="Search Medications">
+          <field name="name"/>
+          <field name="code"/>
+          <field name="laboratory"/>
+          <field name="product_id"/>
+          <filter string="Matched" name="matched" domain="[('match_status', '=', 'matched')]"/>
+          <filter string="Not Found" name="not_found" domain="[('match_status', '=', 'not_found')]"/>
+          <filter string="Not Checked" name="not_checked" domain="[('match_status', '=', 'not_checked')]"/>
+          <separator/>
+          <filter string="PHCT Price Higher" name="phct_higher" domain="[('price_comparison', '=', 'phct_higher')]"/>
+          <filter string="PHCT Price Lower" name="phct_lower" domain="[('price_comparison', '=', 'phct_lower')]"/>
+          <filter string="Price Equal" name="price_equal" domain="[('price_comparison', '=', 'equal')]"/>
+          <group expand="0" string="Group By">
+            <filter string="Match Status" name="group_match_status" context="{'group_by': 'match_status'}"/>
+            <filter string="Price Comparison" name="group_price_comparison" context="{'group_by': 'price_comparison'}"/>
+            <filter string="Circulaire" name="group_circulaire" context="{'group_by': 'circulaire_id'}"/>
+            <filter string="Laboratory" name="group_laboratory" context="{'group_by': 'laboratory'}"/>
+          </group>
+        </search>
+      </field>
+    </record>
+
+    <record id="action_phct_circulaire_medications" model="ir.actions.act_window">
+      <field name="name">Medications</field>
+      <field name="res_model">phct.circulaire.med</field>
+      <field name="view_mode">tree,form</field>
+      <field name="context">{'search_default_matched': 1}</field>
+    </record>
+    
+    <!-- Server action for bulk re-matching unmatched medications -->
+    <record id="action_server_rematch_all_unmatched" model="ir.actions.server">
+      <field name="name">Re-match All Unmatched Medications</field>
+      <field name="model_id" ref="model_phct_circulaire_med"/>
+      <field name="binding_model_id" ref="model_phct_circulaire_med"/>
+      <field name="binding_view_types">list</field>
+      <field name="state">code</field>
+      <field name="code">action = model.action_rematch_all_unmatched()</field>
+    </record>
+    
+    <!-- Action for selected medications -->
+    <record id="action_server_bulk_rematch_selected" model="ir.actions.server">
+      <field name="name">Re-match Selected Medications</field>
+      <field name="model_id" ref="model_phct_circulaire_med"/>
+      <field name="binding_model_id" ref="model_phct_circulaire_med"/>
+      <field name="binding_view_types">list</field>
+      <field name="state">code</field>
+      <field name="code">action = records.action_bulk_rematch()</field>
+    </record>
+
+    <menuitem id="menu_phct_medications_action" name="Medications" parent="menu_phct_circulaire" action="action_phct_circulaire_medications" sequence="20"/>
   </data>
 </odoo>
