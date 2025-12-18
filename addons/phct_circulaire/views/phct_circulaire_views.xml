@@ -112,7 +112,22 @@
       <field name="model">phct.circulaire.med</field>
       <field name="arch" type="xml">
         <form string="Medication">
+          <header>
+            <button name="match_with_product" string="Re-match Product" type="object" class="oe_highlight"
+                    attrs="{'invisible': [('match_status', '=', 'matched')]}"/>
+            <button name="action_create_product" string="Create Product" type="object" class="oe_highlight"
+                    attrs="{'invisible': [('match_status', '=', 'matched')]}"/>
+            <button name="action_update_product" string="Update Product" type="object" class="btn-primary"
+                    attrs="{'invisible': [('match_status', '!=', 'matched')]}"/>
+            <field name="match_status" widget="statusbar" statusbar_visible="not_checked,matched,not_found"/>
+          </header>
           <sheet>
+            <div class="oe_button_box" name="button_box">
+              <button name="action_update_product" type="object" class="oe_stat_button" icon="fa-external-link"
+                      attrs="{'invisible': [('product_id', '=', False)]}">
+                <field name="product_id" widget="statinfo" string="Linked Product"/>
+              </button>
+            </div>
             <group>
               <group>
                 <field name="circulaire_id"/>
@@ -133,8 +148,6 @@
             </group>
             <group string="Product Matching">
               <group>
-                <field name="match_status"/>
-                <field name="product_id"/>
                 <field name="match_confidence" widget="progressbar"/>
               </group>
               <group>
@@ -142,8 +155,25 @@
                 <field name="price_difference" widget="monetary"/>
               </group>
             </group>
-            <group string="Actions">
-              <button name="match_with_product" string="Re-match Product" type="object" class="oe_highlight"/>
+            <group string="Quick Actions" attrs="{'invisible': [('match_status', '=', 'matched')]}">
+              <div class="alert alert-info" role="alert">
+                <strong>Not matched?</strong> You can:
+                <ul>
+                  <li>Click "Re-match Product" to search again</li>
+                  <li>Click "Create Product" to add this medication to your product database</li>
+                </ul>
+              </div>
+            </group>
+            <group string="Price Update Suggestion" attrs="{'invisible': ['|', ('product_id', '=', False), ('price_comparison', '=', 'equal')]}">
+              <div class="alert alert-warning" role="alert">
+                <strong>Price difference detected!</strong>
+                <ul>
+                  <li>PHCT Price: <field name="price_public" readonly="1" nolabel="1" style="display:inline;"/></li>
+                  <li>Product Price: <span attrs="{'invisible': [('product_id', '=', False)]}"><field name="product_id" readonly="1" nolabel="1" style="display:inline;" invisible="1"/></span></li>
+                  <li>Difference: <field name="price_difference" readonly="1" nolabel="1" style="display:inline;"/> (<field name="price_comparison" readonly="1" nolabel="1" style="display:inline;"/>)</li>
+                </ul>
+                Click "Update Product" to adjust the product price.
+              </div>
             </group>
           </sheet>
         </form>
@@ -201,6 +231,36 @@
       <field name="binding_view_types">list</field>
       <field name="state">code</field>
       <field name="code">action = records.action_bulk_rematch()</field>
+    </record>
+    
+    <!-- Action to create product from medication -->
+    <record id="action_server_create_product_from_med" model="ir.actions.server">
+      <field name="name">Create Product from Medication</field>
+      <field name="model_id" ref="model_phct_circulaire_med"/>
+      <field name="binding_model_id" ref="model_phct_circulaire_med"/>
+      <field name="binding_view_types">list,form</field>
+      <field name="state">code</field>
+      <field name="code">
+if len(records) == 1:
+    action = records.action_create_product()
+else:
+    raise UserError("Please select only one medication to create a product from.")
+      </field>
+    </record>
+    
+    <!-- Action to update matched product -->
+    <record id="action_server_update_matched_product" model="ir.actions.server">
+      <field name="name">Update Matched Product</field>
+      <field name="model_id" ref="model_phct_circulaire_med"/>
+      <field name="binding_model_id" ref="model_phct_circulaire_med"/>
+      <field name="binding_view_types">list,form</field>
+      <field name="state">code</field>
+      <field name="code">
+if len(records) == 1:
+    action = records.action_update_product()
+else:
+    raise UserError("Please select only one medication to update its product.")
+      </field>
     </record>
 
     <menuitem id="menu_phct_medications_action" name="Medications" parent="menu_phct_circulaire" action="action_phct_circulaire_medications" sequence="20"/>

@@ -1119,6 +1119,98 @@ class PhctCirculaireMed(models.Model):
             }
         }
     
+    def action_create_product(self):
+        """Open product creation form pre-filled with medication data.
+        
+        Allows user to create a new product from this medication by pre-filling
+        the form with available data (name, code, lab, price).
+        User can then complete missing fields and save.
+        """
+        self.ensure_one()
+        
+        # Prepare default values for product creation
+        default_values = {
+            'name': self.name,
+            'categ_id': 9,  # Pharmacy category
+            'list_price': self.price_public or 0.0,
+            'type': 'product',
+            'detailed_type': 'product',
+        }
+        
+        # Add code_pct if available
+        if self.code:
+            default_values['code_pct'] = self.code
+        
+        # Add laboratory if available
+        if self.laboratory:
+            default_values['labo'] = self.laboratory
+        
+        # Return action to open product form
+        return {
+            'name': _('Create Product from %s') % self.name,
+            'type': 'ir.actions.act_window',
+            'res_model': 'product.template',
+            'view_mode': 'form',
+            'view_id': False,
+            'target': 'new',  # Open in dialog
+            'context': {
+                'default_name': default_values['name'],
+                'default_categ_id': default_values['categ_id'],
+                'default_list_price': default_values['list_price'],
+                'default_code_pct': default_values.get('code_pct', False),
+                'default_labo': default_values.get('labo', False),
+                'default_type': default_values['type'],
+                'default_detailed_type': default_values['detailed_type'],
+                # Store medication ID to link after creation
+                'phct_medication_id': self.id,
+            }
+        }
+    
+    def action_update_product(self):
+        """Open linked product form for updating.
+        
+        Opens the matched product in edit mode, allowing user to update
+        the product information (especially price) based on medication data.
+        """
+        self.ensure_one()
+        
+        if not self.product_id:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': _('No Product Linked'),
+                    'message': _('This medication is not matched to any product. Use \"Create Product\" instead.'),
+                    'type': 'warning',
+                    'sticky': False,
+                }
+            }
+        
+        # Show suggested updates in context
+        updates = []
+        if self.price_public and abs(self.product_id.list_price - self.price_public) > 0.01:
+            updates.append(_('Price: %s → %s') % (self.product_id.list_price, self.price_public))
+        
+        context_msg = ''
+        if updates:
+            context_msg = _('Suggested updates: ') + ', '.join(updates)
+        
+        return {
+            'name': _('Update Product: %s') % self.product_id.name,
+            'type': 'ir.actions.act_window',
+            'res_model': 'product.template',
+            'res_id': self.product_id.id,
+            'view_mode': 'form',
+            'view_id': False,
+            'target': 'new',
+            'context': {
+                'phct_suggested_price': self.price_public,
+                'phct_medication_id': self.id,
+                'form_view_initial_mode': 'edit',
+            },
+            'help': context_msg,
+        }
+    
     @api.model
     def create(self, vals):
         """Override create to automatically match products."""
