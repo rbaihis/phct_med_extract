@@ -877,6 +877,36 @@ class PhctCirculaireMed(models.Model):
        help='Comparison of PHCT sale price vs product list_price')
     match_confidence = fields.Float(string='Match Confidence %', 
                                     help='Confidence score of the product match (0-100)')
+    match_confidence_state = fields.Selection([
+        ('perfect', '100% Match'),
+        ('good', 'Partial Match'),
+        ('none', 'No Match'),
+    ], string='Match Quality', compute='_compute_match_confidence_state', store=True,
+       help='Visual indicator of match quality')
+    match_confidence_display = fields.Char(string='Match %', compute='_compute_match_confidence_display',
+                                           help='Formatted match confidence with color')
+    
+    @api.depends('match_confidence')
+    def _compute_match_confidence_state(self):
+        """Compute match confidence state for color coding."""
+        for record in self:
+            if record.match_confidence == 100.0:
+                record.match_confidence_state = 'perfect'
+            elif record.match_confidence > 0:
+                record.match_confidence_state = 'good'
+            else:
+                record.match_confidence_state = 'none'
+    
+    @api.depends('match_confidence', 'match_confidence_state')
+    def _compute_match_confidence_display(self):
+        """Format match confidence with visual indicator."""
+        for record in self:
+            if record.match_confidence == 100.0:
+                record.match_confidence_display = f'✓ {int(record.match_confidence)}%'
+            elif record.match_confidence > 0:
+                record.match_confidence_display = f'~ {int(record.match_confidence)}%'
+            else:
+                record.match_confidence_display = '✗ 0%'
     
     # Computed display fields
     circulaire_display = fields.Char(string='Circulaire', compute='_compute_circulaire_display', store=True)

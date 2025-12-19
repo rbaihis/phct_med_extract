@@ -46,14 +46,16 @@
             <notebook>
               <page string="Medications">
                 <field name="medication_ids">
-                  <tree editable="bottom" decoration-success="match_status=='matched' and price_comparison=='equal'" 
-                        decoration-warning="match_status=='matched' and price_comparison in ('phct_higher', 'phct_lower')"
-                        decoration-muted="match_status=='not_found'">
+                  <tree editable="bottom" 
+                        decoration-success="match_confidence_state == 'perfect'" 
+                        decoration-warning="match_confidence_state == 'good'"
+                        decoration-danger="match_confidence_state == 'none'">
                     <field name="name"/>
                     <field name="laboratory"/>
                     <field name="price_public"/>
                     <field name="match_status"/>
-                    <field name="match_confidence" widget="progressbar"/>
+                    <field name="match_confidence_state" invisible="1"/>
+                    <field name="match_confidence_display" string="Match %"/>
                     <field name="product_id"/>
                     <field name="price_comparison"/>
                     <field name="price_difference" widget="monetary"/>
@@ -92,15 +94,17 @@
       <field name="name">phct.circulaire.med.tree</field>
       <field name="model">phct.circulaire.med</field>
       <field name="arch" type="xml">
-        <tree string="Medications" decoration-success="match_status=='matched' and price_comparison=='equal'" 
-              decoration-warning="match_status=='matched' and price_comparison in ('phct_higher', 'phct_lower')"
-              decoration-muted="match_status=='not_found'">
+        <tree string="Medications" 
+              decoration-success="match_confidence_state == 'perfect'" 
+              decoration-warning="match_confidence_state == 'good'"
+              decoration-danger="match_confidence_state == 'none'">
           <field name="circulaire_display"/>
           <field name="name"/>
           <field name="laboratory"/>
           <field name="price_public"/>
           <field name="match_status"/>
-          <field name="match_confidence" widget="progressbar"/>
+          <field name="match_confidence_state" invisible="1"/>
+          <field name="match_confidence_display" string="Match %"/>
           <field name="product_id"/>
           <field name="price_comparison"/>
           <field name="price_difference" widget="monetary"/>
