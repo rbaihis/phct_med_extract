@@ -6,12 +6,13 @@
       <field name="arch" type="xml">
         <tree string="Circulaires">
           <field name="filename"/>
-          <field name="circulaire_ref"/>
-          <field name="circulaire_number"/>
-          <field name="year"/>
           <field name="date"/>
-          <field name="medications_count"/>
-          <field name="ocr_used"/>
+          <field name="new_medication_count"/>
+          <field name="revised_count"/>
+          <field name="not_found_count"/>
+          <field name="matched_100_count"/>
+          <field name="matched_partial_count"/>
+          <field name="ocr_verify_recommended" widget="boolean"/>
         </tree>
       </field>
     </record>
@@ -28,12 +29,18 @@
                 <field name="circulaire_ref"/>
                 <field name="circulaire_number"/>
                 <field name="year"/>
+                <field name="date"/>
                 <field name="pdf_url" widget="url"/>
               </group>
               <group>
-                <field name="date"/>
-                <field name="medications_count"/>
+                <field name="medications_count" string="Total Medications"/>
+                <field name="new_medication_count"/>
+                <field name="revised_count"/>
+                <field name="not_found_count"/>
+                <field name="matched_100_count"/>
+                <field name="matched_partial_count"/>
                 <field name="ocr_used"/>
+                <field name="ocr_verify_recommended" widget="boolean"/>
               </group>
             </group>
             <notebook>
@@ -42,19 +49,16 @@
                   <tree editable="bottom" decoration-success="match_status=='matched' and price_comparison=='equal'" 
                         decoration-warning="match_status=='matched' and price_comparison in ('phct_higher', 'phct_lower')"
                         decoration-muted="match_status=='not_found'">
-                    <field name="code"/>
                     <field name="name"/>
                     <field name="laboratory"/>
                     <field name="price_public"/>
-                    <field name="match_status" optional="show"/>
-                    <field name="product_id" optional="show"/>
-                    <field name="match_confidence" optional="hide" widget="progressbar"/>
-                    <field name="price_comparison" optional="show"/>
-                    <field name="price_difference" optional="show" widget="monetary"/>
-                    <field name="category" optional="hide"/>
+                    <field name="match_status"/>
+                    <field name="match_confidence" widget="progressbar"/>
+                    <field name="product_id"/>
+                    <field name="price_comparison"/>
+                    <field name="price_difference" widget="monetary"/>
                     <field name="type"/>
                     <field name="origin"/>
-                    <field name="price_pharmacy" optional="hide"/>
                   </tree>
                 </field>
               </page>
@@ -91,14 +95,13 @@
         <tree string="Medications" decoration-success="match_status=='matched' and price_comparison=='equal'" 
               decoration-warning="match_status=='matched' and price_comparison in ('phct_higher', 'phct_lower')"
               decoration-muted="match_status=='not_found'">
-          <field name="circulaire_id"/>
-          <field name="code"/>
+          <field name="circulaire_display"/>
           <field name="name"/>
           <field name="laboratory"/>
           <field name="price_public"/>
           <field name="match_status"/>
+          <field name="match_confidence" widget="progressbar"/>
           <field name="product_id"/>
-          <field name="match_confidence" widget="progressbar" optional="hide"/>
           <field name="price_comparison"/>
           <field name="price_difference" widget="monetary"/>
           <field name="type"/>
@@ -113,12 +116,10 @@
       <field name="arch" type="xml">
         <form string="Medication">
           <header>
-            <button name="match_with_product" string="Re-match Product" type="object" class="oe_highlight"
-                    attrs="{'invisible': [('match_status', '=', 'matched')]}"/>
-            <button name="action_create_product" string="Create Product" type="object" class="oe_highlight"
-                    attrs="{'invisible': [('match_status', '=', 'matched')]}"/>
-            <button name="action_update_product" string="Update Product" type="object" class="btn-primary"
-                    attrs="{'invisible': [('match_status', '!=', 'matched')]}"/>
+            <button name="match_with_product" string="Re-match Product" type="object" class="oe_highlight"/>
+            <button name="action_create_product" string="Create New Product" type="object" class="oe_highlight"/>
+            <button name="action_update_product" string="Update Matched Product" type="object" class="btn-primary"
+                    attrs="{'invisible': [('product_id', '=', False)]}"/>
             <field name="match_status" widget="statusbar" statusbar_visible="not_checked,matched,not_found"/>
           </header>
           <sheet>
@@ -131,6 +132,7 @@
             <group>
               <group>
                 <field name="circulaire_id"/>
+                <field name="circulaire_display"/>
                 <field name="code"/>
                 <field name="name"/>
                 <field name="laboratory"/>
@@ -146,21 +148,69 @@
                 <field name="margin"/>
               </group>
             </group>
-            <group string="Product Matching">
-              <group>
-                <field name="match_confidence" widget="progressbar"/>
-              </group>
-              <group>
-                <field name="price_comparison"/>
-                <field name="price_difference" widget="monetary"/>
-              </group>
-            </group>
-            <group string="Quick Actions" attrs="{'invisible': [('match_status', '=', 'matched')]}">
+            
+            <notebook>
+              <page string="Product Matching">
+                <group>
+                  <group>
+                    <field name="product_id" string="Matched Product" readonly="1" 
+                           attrs="{'invisible': [('product_id', '=', False)]}"/>
+                    <field name="match_status" string="Match Status"/>
+                    <field name="match_confidence" widget="progressbar"/>
+                  </group>
+                  <group>
+                    <field name="price_comparison"/>
+                    <field name="price_difference" widget="monetary"/>
+                  </group>
+                </group>
+              </page>
+              
+              <page string="🔍 Manual Search">
+                <group>
+                  <div class="alert alert-info" role="alert">
+                    <strong>How to use:</strong>
+                    <ol>
+                      <li>Type at least 3 characters in the search box below</li>
+                      <li>Matching products will appear as tags</li>
+                      <li>Use the dropdown to select the correct product</li>
+                      <li>The product will be linked automatically</li>
+                    </ol>
+                  </div>
+                </group>
+                
+                <group string="Step 1: Search Products">
+                  <field name="search_term" 
+                         force_save="1"
+                         placeholder="Type product name, code, or keywords (min 3 chars)..."
+                         style="font-size: 14px; min-width: 300px;"/>
+                </group>
+                
+                <group string="Step 2: Review Results" attrs="{'invisible': [('search_results_ids', '=', [])]}">
+                  <field name="search_results_ids" 
+                         widget="many2many_tags" 
+                         nolabel="1"
+                         readonly="1"
+                         options="{'color_field': 'list_price', 'no_create': True}"/>
+                </group>
+                
+                <group string="Step 3: Select Product">
+                  <field name="manual_product_id" 
+                         force_save="1"
+                         context="{'default_categ_id': 9}"
+                         options="{'no_create': True, 'no_quick_create': True}"
+                         placeholder="Click to select from search results or type to search all..."/>
+                </group>
+              </page>
+            </notebook>
+            
+            <group string="Actions Guide">
               <div class="alert alert-info" role="alert">
-                <strong>Not matched?</strong> You can:
+                <strong>Available Actions:</strong>
                 <ul>
-                  <li>Click "Re-match Product" to search again</li>
-                  <li>Click "Create Product" to add this medication to your product database</li>
+                  <li><strong>Re-match Product:</strong> Run auto-matching again (useful after adding new products)</li>
+                  <li><strong>Create New Product:</strong> Add this medication as a new product (different dosage/quantity)</li>
+                  <li><strong>Update Matched Product:</strong> Edit existing product (fix typos or update prices)</li>
+                  <li><strong>Manual Product Selection:</strong> Search and link manually if auto-match is incorrect</li>
                 </ul>
               </div>
             </group>
@@ -169,10 +219,9 @@
                 <strong>Price difference detected!</strong>
                 <ul>
                   <li>PHCT Price: <field name="price_public" readonly="1" nolabel="1" style="display:inline;"/></li>
-                  <li>Product Price: <span attrs="{'invisible': [('product_id', '=', False)]}"><field name="product_id" readonly="1" nolabel="1" style="display:inline;" invisible="1"/></span></li>
                   <li>Difference: <field name="price_difference" readonly="1" nolabel="1" style="display:inline;"/> (<field name="price_comparison" readonly="1" nolabel="1" style="display:inline;"/>)</li>
                 </ul>
-                Click "Update Product" to adjust the product price.
+                Click "Update Matched Product" to adjust the product price.
               </div>
             </group>
           </sheet>

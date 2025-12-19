@@ -208,6 +208,36 @@ class PhctCirculaire(models.Model):
     medications_count = fields.Integer(string='Medications Count')
     ocr_used = fields.Boolean(string='OCR Used', default=False)
     medication_ids = fields.One2many('phct.circulaire.med', 'circulaire_id', string='Medications')
+    
+    # Computed display fields
+    new_medication_count = fields.Integer(string='New Medications', compute='_compute_medication_stats', store=True)
+    revised_count = fields.Integer(string='Revised Prices', compute='_compute_medication_stats', store=True)
+    not_found_count = fields.Integer(string='Not Found in DB', compute='_compute_medication_stats', store=True)
+    matched_100_count = fields.Integer(string='Matched 100%', compute='_compute_medication_stats', store=True)
+    matched_partial_count = fields.Integer(string='Matched Partial', compute='_compute_medication_stats', store=True)
+    ocr_verify_recommended = fields.Boolean(string='Verify Manually (OCR)', compute='_compute_ocr_verify', store=True)
+    
+    @api.depends('medication_ids', 'medication_ids.type', 'medication_ids.match_status', 'medication_ids.match_confidence')
+    def _compute_medication_stats(self):
+        """Compute medication statistics based on type and match status."""
+        for record in self:
+            meds = record.medication_ids
+            # Count new medications (type contains 'new')
+            record.new_medication_count = len(meds.filtered(lambda m: m.type and 'new' in m.type.lower()))
+            # Count revised medications (type contains 'revised')
+            record.revised_count = len(meds.filtered(lambda m: m.type and 'revised' in m.type.lower()))
+            # Count not found products
+            record.not_found_count = len(meds.filtered(lambda m: m.match_status == 'not_found'))
+            # Count matched 100%
+            record.matched_100_count = len(meds.filtered(lambda m: m.match_confidence == 100.0))
+            # Count matched partial (>0% and <100%)
+            record.matched_partial_count = len(meds.filtered(lambda m: 0 < m.match_confidence < 100.0))
+    
+    @api.depends('ocr_used')
+    def _compute_ocr_verify(self):
+        """Recommend manual verification when OCR was used."""
+        for record in self:
+            record.ocr_verify_recommended = record.ocr_used
 
     # =============================================================================
     # PDF EXTRACTION
@@ -821,6 +851,16 @@ class PhctCirculaireMed(models.Model):
     # Product matching fields
     product_id = fields.Many2one('product.template', string='Matched Product', 
                                  help='Product found in database matching this medication')
+    manual_product_id = fields.Many2one('product.template', string='Manual Product Selection',
+                                        help='Manually select a product if auto-match is incorrect or needs verification')
+    search_term = fields.Char(string='Search Products', 
+                              help='Type to search for products in the database')
+    search_results_ids = fields.Many2many('product.template', 
+                                          'phct_med_product_search_rel', 
+                                          'medication_id', 'product_id',
+                                          string='Search Results', 
+                                          compute='_compute_search_results',
+                                          help='Products matching the search term')
     match_status = fields.Selection([
         ('not_checked', 'Not Checked'),
         ('matched', 'Matched'),
@@ -837,6 +877,62 @@ class PhctCirculaireMed(models.Model):
        help='Comparison of PHCT sale price vs product list_price')
     match_confidence = fields.Float(string='Match Confidence %', 
                                     help='Confidence score of the product match (0-100)')
+    
+    # Computed display fields
+    circulaire_display = fields.Char(string='Circulaire', compute='_compute_circulaire_display', store=True)
+    
+    @api.depends('search_term')
+    def _compute_search_results(self):
+        """Search for products based on search term."""
+        for record in self:
+            if record.search_term and len(record.search_term) >= 3:
+                # Search in product name using ilike (case-insensitive)
+                domain = [
+                    ('categ_id', '=', 9),  # Pharmacy category
+                    '|', '|',
+                    ('name', 'ilike', record.search_term),
+                    ('default_code', 'ilike', record.search_term),
+                    ('description', 'ilike', record.search_term),
+                ]
+                products = self.env['product.template'].search(domain, limit=20, order='name')
+                record.search_results_ids = products
+            else:
+                record.search_results_ids = False
+    
+    @api.depends('circulaire_id', 'circulaire_id.circulaire_number', 'circulaire_id.year')
+    def _compute_circulaire_display(self):
+        """Display circulaire as 'number/year' format."""
+        for record in self:
+            if record.circulaire_id:
+                record.circulaire_display = f"{record.circulaire_id.circulaire_number}/{record.circulaire_id.year}"
+            else:
+                record.circulaire_display = ''
+    
+    @api.onchange('manual_product_id')
+    def _onchange_manual_product(self):
+        """When user manually selects a product, update product_id and recalculate prices."""
+        if self.manual_product_id:
+            self.product_id = self.manual_product_id
+            self.match_status = 'matched'
+            self.match_confidence = 100.0  # Manual selection is 100% confident
+            self._calculate_price_comparison()
+    
+    def action_select_search_result(self):
+        """Action to select a product from search results (called from tree view button)."""
+        # This will be triggered from a button on search results
+        # The context will contain the product_id to select
+        if self.env.context.get('select_product_id'):
+            product_id = self.env.context.get('select_product_id')
+            product = self.env['product.template'].browse(product_id)
+            if product:
+                self.write({
+                    'product_id': product.id,
+                    'manual_product_id': product.id,
+                    'match_status': 'matched',
+                    'match_confidence': 100.0,
+                })
+                self._calculate_price_comparison()
+                return {'type': 'ir.actions.act_window_close'}
     
     def _calculate_price_comparison(self):
         """Calculate price comparison with matched product."""

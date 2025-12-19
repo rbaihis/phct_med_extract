@@ -1,6 +1,6 @@
 {
     'name': 'PHCT Circulaire (Importer)',
-    'version': '1.1.0',
+    'version': '1.2.0',
     'summary': 'Fetch and store PHCT circulaires using existing parser',
     'category': 'Tools',
     'author': 'Migration Bot',
